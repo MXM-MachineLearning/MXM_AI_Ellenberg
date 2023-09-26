@@ -6,11 +6,11 @@ from util import *
 
 
 class Node:
-    def __init__(self, parent, state):
+    def __init__(self, parent, state, n_children):
         self.state = np.array(state, dtype=np.int32)
         self.parent = parent
         self.visits = 0
-        self.children = [None, None]
+        self.children = [None] * n_children
 
         self.value = self.norm_value(self.state)
         self.subtree_value = 0
@@ -84,7 +84,7 @@ class MCTS:
         i = random.choice(possible)
         # if unexplored or non-terminal, get value
         state = self.actions[i](node.state)
-        node.children[i] = Node(node, state)
+        node.children[i] = Node(node, state, len(self.actions))
         return node.children[i].value
 
     def tree_policy(self, node, computations):
@@ -154,26 +154,42 @@ class MCTS:
 
 def get_data(fname):
     x = np.array(np.loadtxt(fname, delimiter=","), dtype=np.float16)
-    return x[:,0:2], x[:, -1]
+    return x[:,:-1], x[:,-1]
 
 
-def test(x, y, k_C, comp_limit=10, actions=(a_mod, a_swap)):
+def test(x, y, C, comp_limit=10, actions=(a_mod, a_swap), zero_index=False):
     correct = 0
-    mcts = MCTS(actions, k_C)
+    mcts = MCTS(actions, C)
+    if zero_index:
+        y = y - np.ones(len(y))
     for i in range(len(x)):
-        if mcts.run(Node(None, test_X[i]), comp_limit=comp_limit) == test_Y[i]:
+        if mcts.run(Node(None, x[i], len(actions)), comp_limit=comp_limit) == y[i]:
             correct += 1
     return correct / len(x)
 
 
-test_X, test_Y = get_data("test_data/test_simple.csv")
-test_Y.reshape(-1, 1)
+def test_simple(C, cases=100, lookahead=50):
+    test_X, test_Y = get_data("test_data/test_simple.csv")
+    test_Y.reshape(-1, 1)
 
-# test
-ACTIONS_SIMPLE = [a_mod, a_swap]
+    simple_as = [a_mod, a_swap]
+
+    acc = test(test_X[:cases], test_Y[:cases], C, comp_limit=lookahead, actions=simple_as)
+    print("Simple Test Accuracy:", acc)
+
+
+def test_quad(C, cases=100, lookahead=100):
+    test_X, test_Y = get_data("../Donald/four_step_euclidean/four_directions_test.csv") # thanks, donald
+    test_Y.reshape(-1, 1)
+
+    quad_as = [a_plsy, a_suby, a_plsx, a_subx]
+
+    acc = test(test_X[:cases], test_Y[:cases], C, comp_limit=lookahead, actions=quad_as, zero_index=True)
+    print("Quad Test Accuracy:", acc)
+
+
 k_C = 1 / math.sqrt(2)
-
 k_cases = 50
-acc = test(test_X[:k_cases], test_Y[:k_cases], k_C, comp_limit=50, actions=ACTIONS_SIMPLE)
-# acc = test(test_X[50:60], test_Y[50:60])
-print("Accuracy:", acc)
+
+test_simple(k_C, k_cases, lookahead=5)
+# test_quad(k_C, k_cases)

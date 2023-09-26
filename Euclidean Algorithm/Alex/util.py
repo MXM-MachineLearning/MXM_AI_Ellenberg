@@ -1,4 +1,5 @@
 import math
+import numpy as np
 
 
 def a_identity(state):
@@ -21,6 +22,23 @@ def a_mod(state):
 
 def a_swap(state):
     return state[1], state[0]
+
+
+def a_plsy(state):
+    return state @ np.array([[1, 1], [0, 1]])
+
+
+def a_suby(state):
+    return state @ np.array([[1, -1], [0, 1]])
+
+
+def a_plsx(state):
+    return state @ np.array([[1, 0], [1, 1]])
+
+
+def a_subx(state):
+    return state @ np.array([[1, 0], [-1, 1]])
+
 
 
 def UCT_fn(child, C):
