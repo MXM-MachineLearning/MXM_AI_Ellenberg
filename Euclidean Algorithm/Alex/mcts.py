@@ -2,10 +2,17 @@ import math
 import numpy as np
 import random
 
-ACTIONS = np.array([[1, 1], [0, -1]], dtype=np.float16), np.array([[0, 1], [1, 0]], dtype=np.float16)
 
-def gen_start_config():
-    return np.round(np.random.rand(1, 2) * 100)   # TODO make a better stochastic thing
+def a_subtract(state):
+    return state[0], state[1] - state[0]
+
+
+def a_mod(state):
+    return state[0], state[1] % state[0]
+
+
+def a_swap(state):
+    return state[1], state[0]
 
 
 def UCT_fn(child, C):
@@ -14,6 +21,8 @@ def UCT_fn(child, C):
     return child.subtree_value + 2 * C * math.sqrt(2 * math.log2(1 + child.parent.visits) / child.visits)
 
 
+# ACTIONS = [a_subtract, a_swap]
+ACTIONS = [a_mod, a_swap]
 k_C = 1 / math.sqrt(2)
 
 
@@ -44,9 +53,7 @@ class Node:
         """
         if Node.terminal(state):
             return math.inf
-        a = np.linalg.norm(state)
-        x = -np.min(np.abs(np.array(state) / np.linalg.norm(state)))
-        return x
+        return -np.min(np.abs(np.array(state) / np.linalg.norm(state)))
 
 
 class MCTS:
@@ -94,7 +101,7 @@ class MCTS:
 
         i = random.choice(possible)
         # if unexplored or non-terminal, get value
-        state = node.state @ ACTIONS[i]
+        state = ACTIONS[i](node.state)
         node.children[i] = Node(node, state)
         return node.children[i].value
 
