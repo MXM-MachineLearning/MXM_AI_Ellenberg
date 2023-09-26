@@ -7,22 +7,19 @@ ACTIONS = np.array([[1, 1], [0, -1]], dtype=np.float16), np.array([[0, 1], [1, 0
 def gen_start_config():
     return np.round(np.random.rand(1, 2) * 100)   # TODO make a better stochastic thing
 
-def terminate(s):
-    k_eps = 1e-4    # for float imprecision
-    # terminate if one of the coordinates is 0
-    return s[0] <= k_eps or s[1] <= k_eps
-
 
 def UCT_fn(child, C):
     if child.visits == 0:
         return math.inf
     return child.subtree_value + 2 * C * math.sqrt(2 * math.log2(1 + child.parent.visits) / child.visits)
 
+
 k_C = 1 / math.sqrt(2)
+
 
 class Node:
     def __init__(self, parent, state):
-        self.state = state
+        self.state = np.array(state, dtype=np.int32)
         self.parent = parent
         self.visits = 0
         self.children = [None, None]
@@ -31,8 +28,11 @@ class Node:
         self.subtree_value = 0
         self.is_terminal = self.terminal(self.state)
 
+    def __str__(self):
+        return "State: " + str(self.state) + "; Value: " + str(self.value) + "; Subtree Value: " + str(self.subtree_value)
+
     @staticmethod
-    def terminal(state, k_eps = 1e-4):
+    def terminal(state, k_eps=1e-4):
         if abs(state[0]) <= k_eps or abs(state[1]) <= k_eps:
             return True
         return False
@@ -42,16 +42,17 @@ class Node:
         """
         :return: value normalized to be in [0,1] to satisfy Hoeffding ineq
         """
-        if terminate(state):
+        if Node.terminal(state):
             return math.inf
-        return -np.min(np.array([state[0] / np.linalg.norm(state), state[1] / np.linalg.norm(state)]))
+        a = np.linalg.norm(state)
+        x = -np.min(np.abs(np.array(state) / np.linalg.norm(state)))
+        return x
 
 
 class MCTS:
     @staticmethod
     def is_leaf(node):
         return node.state[0] is None and node.state[1] is None
-
 
     @staticmethod
     def pick_child(node):
@@ -107,7 +108,7 @@ class MCTS:
         return node, computations
 
     @staticmethod
-    def backprop(root):
+    def prop(root):
         """
         Recursively update node's value based off average raw values in subtree with root at node
 
@@ -116,18 +117,23 @@ class MCTS:
         """
         n_child = root.visits
         v_child = root.value * root.visits
+
+        both_none = True
         for i in root.children:
             if i is None:
                 continue
+            both_none = False
             i.visits += 1
             n_child += i.visits
             v_child += i.value * i.visits
-            temp = MCTS.backprop(i)
+            temp = MCTS.prop(i)
             n_child += temp[0]
-            v_child += temp[1]
-        root.subtree_value = v_child / n_child
+            v_child += temp[1] * n_child
+        if both_none:
+            root.subtree_value = 0
+        else:
+            root.subtree_value = v_child / (n_child + 1e-4)     # so root doesn't blow up
         return n_child, v_child
-
 
     @staticmethod
     def MCTS(node, comp_limit=10):
@@ -141,18 +147,16 @@ class MCTS:
         while comps < comp_limit:
             c, comps = MCTS.tree_policy(node, comps)
             reward = MCTS.default_policy(node)
-            MCTS.backprop(node)
+            # node.visits += 1
+            MCTS.prop(node)
 
         rv = MCTS.pick_child(node)
         # rv.parent = None
         return rv
 
-
-start = Node(None, np.array((1, 1), dtype=np.float16))
-decision = MCTS.MCTS(start, comp_limit=2)
-
-
 # simple test
+# start = Node(None, np.array((1, 1), dtype=np.float16))
+# decision = MCTS.MCTS(start, comp_limit=2)
 # print(decision)
 # print(start.children[0].subtree_value)
 # print(start.children[1].subtree_value)
