@@ -53,7 +53,8 @@ class Node:
         """
         if Node.terminal(state):
             return math.inf
-        return -np.min(np.abs(np.array(state) / np.linalg.norm(state)))
+        x = np.min(np.abs(np.array(state)))
+        return - x
 
 
 class MCTS:
@@ -115,11 +116,12 @@ class MCTS:
         return node, computations
 
     @staticmethod
-    def prop(root):
+    def prop(root, weighted=True):
         """
         Recursively update node's value based off average raw values in subtree with root at node
 
         :param root: root of subtree
+        :param weighted: True for take weighted average for value
         :return: size of subtree, sum of values in subtree
         """
         n_child = root.visits
@@ -132,10 +134,13 @@ class MCTS:
             both_none = False
             i.visits += 1
             n_child += i.visits
-            v_child += i.value * i.visits
+            dv = i.value
+            if weighted:
+                dv *= i.visits
+            v_child += dv
             temp = MCTS.prop(i)
             n_child += temp[0]
-            v_child += temp[1] * n_child
+            v_child += temp[1]
         if both_none:
             root.subtree_value = 0
         else:
@@ -179,14 +184,14 @@ test_X, test_Y = get_data("test_data/test_simple.csv")
 test_Y.reshape(-1, 1)
 
 # test
-k_cases = 10
+k_cases = 50
 correct = 0
 
 for i in range(k_cases):
     if MCTS.MCTS(Node(None, test_X[i])) == test_Y[i]:
         correct += 1
-    else:
-        print(test_X[i])
+    if i % 10 == 0:
+        print("test", i, ":", test_X[i])
 
 acc = correct / k_cases
 print("Accuracy:", acc)
