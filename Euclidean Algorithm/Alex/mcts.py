@@ -2,28 +2,7 @@ import math
 import numpy as np
 import random
 
-
-def a_subtract(state):
-    return state[0], state[1] - state[0]
-
-
-def a_mod(state):
-    return state[0], state[1] % state[0]
-
-
-def a_swap(state):
-    return state[1], state[0]
-
-
-def UCT_fn(child, C):
-    if child.visits == 0:
-        return math.inf
-    return child.subtree_value + 2 * C * math.sqrt(2 * math.log2(1 + child.parent.visits) / child.visits)
-
-
-# ACTIONS = [a_subtract, a_swap]
-ACTIONS = [a_mod, a_swap]
-k_C = 1 / math.sqrt(2)
+from util import *
 
 
 class Node:
@@ -38,19 +17,18 @@ class Node:
         self.is_terminal = self.terminal(self.state)
 
     def __str__(self):
-        return "State: " + str(self.state) + "; Value: " + str(self.value) + "; Subtree Value: " + str(self.subtree_value)
+        return ("State: " + str(self.state) + "; Value: " + str(self.value)
+                + "; Subtree Value: " + str(self.subtree_value))
 
     @staticmethod
     def terminal(state, k_eps=1e-4):
-        if abs(state[0]) <= k_eps or abs(state[1]) <= k_eps:
-            return True
-        return False
+        for i in state:
+            if abs(i) > k_eps:
+                return False
+        return True
 
     @staticmethod
     def norm_value(state):
-        """
-        :return: value normalized to be in [0,1] to satisfy Hoeffding ineq
-        """
         if Node.terminal(state):
             return math.inf
         x = np.min(np.abs(np.array(state)))
@@ -58,34 +36,37 @@ class Node:
 
 
 class MCTS:
-    @staticmethod
-    def is_leaf(node):
-        return node.state[0] is None and node.state[1] is None
+    def __init__(self, actions, k_C):
+        self.actions = actions
+        self.k_C = k_C
 
-    @staticmethod
-    def pick_child(node):
+    def is_leaf(self, node):
+        for i in node.state:
+            if i is not None:
+                return False
+        return True
+
+    def pick_child(self, node):
         # UCT
         t = []
         for i in node.children:
             if i is None:
                 continue
-            t.append(UCT_fn(i, k_C))
-        return int(random.choice(np.argwhere(t == np.max(t))))
+            t.append(UCT_fn(i, self.k_C))
+        return int(random.choice(np.squeeze(np.argwhere(t == np.max(t)), axis=1)))
 
-    @staticmethod
-    def default_policy(node):
+    def default_policy(self, node):
         """
         Keep randomly picking children until reach terminal node or leaf
         """
-        while node is not None and node.is_terminal is False and not MCTS.is_leaf(node):
+        while node is not None and node.is_terminal is False and not self.is_leaf(node):
             temp = random.choice(node.children)
             if temp is None:
                 break
             node = temp
         return node.value
 
-    @staticmethod
-    def default_search(node):
+    def default_search(self, node):
         """
         If node is fully explored (neither child is None), return True
         Otherwise, initialize value of a random unexplored next state
@@ -102,21 +83,19 @@ class MCTS:
 
         i = random.choice(possible)
         # if unexplored or non-terminal, get value
-        state = ACTIONS[i](node.state)
+        state = self.actions[i](node.state)
         node.children[i] = Node(node, state)
         return node.children[i].value
 
-    @staticmethod
-    def tree_policy(node, computations):
+    def tree_policy(self, node, computations):
         while node.is_terminal is False:
-            explored = MCTS.default_search(node)
+            explored = self.default_search(node)
             if explored is not True:
                 return explored, computations + 1
-            node = node.children[MCTS.pick_child(node)]
+            node = node.children[self.pick_child(node)]
         return node, computations
 
-    @staticmethod
-    def prop(root, weighted=True):
+    def prop(self, root, weighted=True):
         """
         Recursively update node's value based off average raw values in subtree with root at node
 
@@ -127,28 +106,27 @@ class MCTS:
         n_child = root.visits
         v_child = root.value * root.visits
 
-        both_none = True
+        all_none = True
         for i in root.children:
             if i is None:
                 continue
-            both_none = False
+            all_none = False
             i.visits += 1
             n_child += i.visits
             dv = i.value
             if weighted:
                 dv *= i.visits
             v_child += dv
-            temp = MCTS.prop(i)
+            temp = self.prop(i)
             n_child += temp[0]
             v_child += temp[1]
-        if both_none:
+        if all_none:
             root.subtree_value = 0
         else:
             root.subtree_value = v_child / (n_child + 1e-4)     # so root doesn't blow up
         return n_child, v_child
 
-    @staticmethod
-    def MCTS(node, comp_limit=10):
+    def run(self, node, comp_limit=10):
         """
         Shoutout "A Survey of MCTS Methods"
         :param node: the current state
@@ -157,12 +135,12 @@ class MCTS:
         """
         comps = 0
         while comps < comp_limit:
-            c, comps = MCTS.tree_policy(node, comps)
-            reward = MCTS.default_policy(node)
+            c, comps = self.tree_policy(node, comps)
+            reward = self.default_policy(node)
             # node.visits += 1
-            MCTS.prop(node)
+            self.prop(node)
 
-        rv = MCTS.pick_child(node)
+        rv = self.pick_child(node)
         # rv.parent = None
         return rv
 
@@ -179,19 +157,23 @@ def get_data(fname):
     return x[:,0:2], x[:, -1]
 
 
-# test_X, test_Y = get_data("test_data/test_simple.csv")
+def test(x, y, k_C, comp_limit=10, actions=(a_mod, a_swap)):
+    correct = 0
+    mcts = MCTS(actions, k_C)
+    for i in range(len(x)):
+        if mcts.run(Node(None, test_X[i]), comp_limit=comp_limit) == test_Y[i]:
+            correct += 1
+    return correct / len(x)
+
+
 test_X, test_Y = get_data("test_data/test_simple.csv")
 test_Y.reshape(-1, 1)
 
 # test
+ACTIONS_SIMPLE = [a_mod, a_swap]
+k_C = 1 / math.sqrt(2)
+
 k_cases = 50
-correct = 0
-
-for i in range(k_cases):
-    if MCTS.MCTS(Node(None, test_X[i])) == test_Y[i]:
-        correct += 1
-    if i % 10 == 0:
-        print("test", i, ":", test_X[i])
-
-acc = correct / k_cases
+acc = test(test_X[:k_cases], test_Y[:k_cases], k_C, comp_limit=50, actions=ACTIONS_SIMPLE)
+# acc = test(test_X[50:60], test_Y[50:60])
 print("Accuracy:", acc)
