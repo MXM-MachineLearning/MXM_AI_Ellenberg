@@ -57,9 +57,9 @@ def train_model(inputs, desired_outputs, num_epochs=100, learning_rate=0.01, viz
     
     # Define loss function and optimizer
     criterion = nn.CrossEntropyLoss()  # Mean Squared Error loss
-    # optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=momentum)
-    # criterion = nn.MSELoss()
+    
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.995)
     losses = []
 
     inputs = inputs.float()
@@ -81,7 +81,7 @@ def train_model(inputs, desired_outputs, num_epochs=100, learning_rate=0.01, viz
             total_loss += cur_item
         
         # Print the average loss for this epoch
-        
+        scheduler.step()
         average_loss = total_loss / len(dataloader)
         if viz_accuracy:
             losses.append(average_loss)
