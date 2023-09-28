@@ -12,7 +12,7 @@ class Node:
         self.visits = 0
         self.children = [None] * n_children
 
-        self.value = self.norm_value(self.state)
+        self.value = self.axis_dist_value(self.state)
         self.subtree_value = 0
         self.is_terminal = self.terminal(self.state)
 
@@ -23,12 +23,12 @@ class Node:
     @staticmethod
     def terminal(state, k_eps=1e-4):
         for i in state:
-            if abs(i) > k_eps:
-                return False
-        return True
+            if abs(i) <= k_eps:
+                return True
+        return False
 
     @staticmethod
-    def norm_value(state):
+    def axis_dist_value(state):
         if Node.terminal(state):
             return math.inf
         x = np.min(np.abs(np.array(state)))
