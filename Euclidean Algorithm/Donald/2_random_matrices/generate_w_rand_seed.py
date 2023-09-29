@@ -132,7 +132,9 @@ if not os.path.isfile(f'two_rand_matrices_seed_{rand_seed}.csv'):
         x = [str(random.randint(1, 2)) for _ in range(0, 10)]
         all_digits = "".join(x)
 
-        cur_array = np.array([0, 1])
+        m = np.random.randint(1, 21)
+
+        cur_array = np.array([0, m])
         for i in all_digits:
             if i=="1":
                 cur_array = cur_array @ A
