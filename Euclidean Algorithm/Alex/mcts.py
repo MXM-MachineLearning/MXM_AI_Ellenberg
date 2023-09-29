@@ -6,45 +6,51 @@ from util import *
 
 
 class Node:
-    def __init__(self, parent, state, n_children):
+    def __init__(self, parent, state, n_children, use_inv=True):
         self.state = np.array(state, dtype=np.int32)
         self.parent = parent
         self.visits = 0
         self.children = [None] * n_children
 
-        self.value = self.axis_dist_value(self.state)
+        self.is_terminal = self.terminal()
+        if use_inv:
+            self.value = self.inv_axis_dist_value()
+        else:
+            self.value = self.axis_dist_value()
         self.subtree_value = 0
-        self.is_terminal = self.terminal(self.state)
 
     def __str__(self):
         return ("State: " + str(self.state) + "; Value: " + str(self.value)
                 + "; Subtree Value: " + str(self.subtree_value))
 
-    @staticmethod
-    def terminal(state, k_eps=1e-4):
-        for i in state:
+    def terminal(self, k_eps=1e-4):
+        for i in self.state:
             if abs(i) <= k_eps:
                 return True
         return False
 
-    @staticmethod
-    def axis_dist_value(state):
-        if Node.terminal(state):
+    def axis_dist_value(self):
+        if self.is_terminal:
             return math.inf
-        x = np.min(np.abs(np.array(state)))
+        x = np.min(np.abs(self.state))
         return - x
+
+    def inv_axis_dist_value(self):
+        if self.is_terminal:
+            return math.inf
+        return 1 / np.min(np.abs(np.array(self.state))) ** 2
+
+    def is_leaf(self):
+        for i in self.state:
+            if i is not None:
+                return False
+        return True
 
 
 class MCTS:
     def __init__(self, actions, k_C):
         self.actions = actions
         self.k_C = k_C
-
-    def is_leaf(self, node):
-        for i in node.state:
-            if i is not None:
-                return False
-        return True
 
     def pick_child(self, node):
         # UCT
@@ -59,7 +65,7 @@ class MCTS:
         """
         Keep randomly picking children until reach terminal node or leaf
         """
-        while node is not None and node.is_terminal is False and not self.is_leaf(node):
+        while node is not None and node.is_terminal is False and not node.is_leaf():
             temp = random.choice(node.children)
             if temp is None:
                 break
@@ -85,7 +91,7 @@ class MCTS:
         # if unexplored or non-terminal, get value
         state = self.actions[i](node.state)
         node.children[i] = Node(node, state, len(self.actions))
-        return node.children[i].value
+        return node.children[i]
 
     def tree_policy(self, node, computations):
         while node.is_terminal is False:
@@ -93,55 +99,42 @@ class MCTS:
             if explored is not True:
                 return explored, computations + 1
             node = node.children[self.pick_child(node)]
-        return node, computations
+        return node, computations + 1
 
-    def prop(self, root, weighted=True):
+    def prop(self, node, k_weight=0.99):
         """
-        Recursively update node's value based off average raw values in subtree with root at node
+        Backprop up using sum of discounted rewards
 
-        :param root: root of subtree
+        :param node of subtree
         :param weighted: True for take weighted average for value
         :return: size of subtree, sum of values in subtree
         """
-        n_child = root.visits
-        v_child = root.value * root.visits
+        node.subtree_value = node.value
+        if not node.is_leaf():
+            for i in node.children:
+                if i is None:
+                    continue
+                node.subtree_value += k_weight * i.subtree_value
+        node.visits += 1
+        if node.parent is None:
+            return
+        self.prop(node.parent)
 
-        all_none = True
-        for i in root.children:
-            if i is None:
-                continue
-            all_none = False
-            i.visits += 1
-            n_child += i.visits
-            dv = i.value
-            if weighted:
-                dv *= i.visits
-            v_child += dv
-            temp = self.prop(i)
-            n_child += temp[0]
-            v_child += temp[1]
-        if all_none:
-            root.subtree_value = 0
-        else:
-            root.subtree_value = v_child / (n_child + 1e-4)     # so root doesn't blow up
-        return n_child, v_child
-
-    def run(self, node, comp_limit=10):
+    def run(self, root, comp_limit=10):
         """
         Shoutout "A Survey of MCTS Methods"
         :param node: the current state
         :param comp_limit: max number of possible future scenarios to compute (carries over)
         :return: index corresponding to best action
         """
+        if root.is_terminal:
+            return True
         comps = 0
         while comps < comp_limit:
-            c, comps = self.tree_policy(node, comps)
-            reward = self.default_policy(node)
-            # node.visits += 1
+            node, comps = self.tree_policy(root, comps)
             self.prop(node)
 
-        rv = self.pick_child(node)
-        # rv.parent = None
+        rv = self.pick_child(root)
         return rv
 
 # simple test
@@ -163,8 +156,11 @@ def test(x, y, C, comp_limit=10, actions=(a_mod, a_swap), zero_index=False):
     if zero_index:
         y = y - np.ones(len(y))
     for i in range(len(x)):
-        if mcts.run(Node(None, x[i], len(actions)), comp_limit=comp_limit) == y[i]:
+        rv = mcts.run(Node(None, x[i], len(actions)), comp_limit=comp_limit)
+        if rv == y[i] or rv is True:
             correct += 1
+        if (i+1) % 100 == 0:
+            print("epoch", i+1, ":", correct / (i+1))
     return correct / len(x)
 
 
@@ -172,6 +168,7 @@ def test_simple(C, cases=100, lookahead=50):
     test_X, test_Y = get_data("test_data/test_simple.csv")
     test_Y.reshape(-1, 1)
 
+    # simple_as = [a_subtract, a_swap]
     simple_as = [a_mod, a_swap]
 
     acc = test(test_X[:cases], test_Y[:cases], C, comp_limit=lookahead, actions=simple_as)
@@ -188,8 +185,12 @@ def test_quad(C, cases=100, lookahead=100):
     print("Quad Test Accuracy:", acc)
 
 
-k_C = 1 / math.sqrt(2)
-k_cases = 50
+k_C = 1 / math.sqrt(2)  # satisfies Hoeffding Ineq (Kocsis and Szepesvari)
+k_cases = 2000
 
-test_simple(k_C, k_cases, lookahead=5)
-# test_quad(k_C, k_cases)
+# test_simple(k_C, k_cases, lookahead=10)
+# ~98% accuracy while using mod transform
+# ~86% accuracy using subtract transform
+
+test_quad(k_C, k_cases, lookahead=10)
+# 40% accuracy on Donald test csv
