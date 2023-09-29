@@ -56,7 +56,7 @@ def train_model(inputs, desired_outputs, num_epochs=100, learning_rate=0.01, viz
     model = SimpleModel()
     
     # Define loss function and optimizer
-    criterion = nn.CrossEntropyLoss()  # Mean Squared Error loss
+    criterion = nn.CrossEntropyLoss() 
     
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.995)
@@ -205,9 +205,9 @@ df['last_matrix'] = df['last_matrix'] - 1
 
 desired_output = torch.tensor(df['last_matrix'].tolist(), dtype=torch.float32).long()
 
-trained_model = train_model(input_data, desired_output, 500, learning_rate=0.0005, viz_accuracy=True)
+trained_model = train_model(input_data, desired_output, 100, learning_rate=0.0005, viz_accuracy=True)
 
-test_df = pd.read_csv("two_rand_matrices_seed_33_test.csv")
+test_df = pd.read_csv(f"two_rand_matrices_seed_{rand_seed}_test.csv")
 just_input_test = test_df.drop('last_matrix', axis=1)
 input_data_test = np.array(just_input_test.values.tolist())
 test_df['last_matrix'] = test_df['last_matrix'] - 1
