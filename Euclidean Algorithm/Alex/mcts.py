@@ -99,7 +99,7 @@ class MCTS:
             if explored is not True:
                 return explored, computations + 1
             node = node.children[self.pick_child(node)]
-        return node, computations
+        return node, computations + 1
 
     def prop(self, node, k_weight=0.99):
         """
@@ -127,6 +127,8 @@ class MCTS:
         :param comp_limit: max number of possible future scenarios to compute (carries over)
         :return: index corresponding to best action
         """
+        if root.is_terminal:
+            return True
         comps = 0
         while comps < comp_limit:
             node, comps = self.tree_policy(root, comps)
@@ -154,8 +156,11 @@ def test(x, y, C, comp_limit=10, actions=(a_mod, a_swap), zero_index=False):
     if zero_index:
         y = y - np.ones(len(y))
     for i in range(len(x)):
-        if mcts.run(Node(None, x[i], len(actions)), comp_limit=comp_limit) == y[i]:
+        rv = mcts.run(Node(None, x[i], len(actions)), comp_limit=comp_limit)
+        if rv == y[i] or rv is True:
             correct += 1
+        if (i+1) % 100 == 0:
+            print("epoch", i+1, ":", correct / (i+1))
     return correct / len(x)
 
 
@@ -163,7 +168,8 @@ def test_simple(C, cases=100, lookahead=50):
     test_X, test_Y = get_data("test_data/test_simple.csv")
     test_Y.reshape(-1, 1)
 
-    simple_as = [a_subtract, a_swap]
+    # simple_as = [a_subtract, a_swap]
+    simple_as = [a_mod, a_swap]
 
     acc = test(test_X[:cases], test_Y[:cases], C, comp_limit=lookahead, actions=simple_as)
     print("Simple Test Accuracy:", acc)
@@ -180,11 +186,11 @@ def test_quad(C, cases=100, lookahead=100):
 
 
 k_C = 1 / math.sqrt(2)  # satisfies Hoeffding Ineq (Kocsis and Szepesvari)
-k_cases = 50
+k_cases = 2000
 
-test_simple(k_C, k_cases, lookahead=20)
-# ~90% accuracy while using mod transform
-# ~90% accuracy using subtract transform
+# test_simple(k_C, k_cases, lookahead=10)
+# ~98% accuracy while using mod transform
+# ~86% accuracy using subtract transform
 
-# test_quad(k_C, k_cases)
-# 10-20% accuracy with simple dist_to_axis
+test_quad(k_C, k_cases, lookahead=10)
+# 40% accuracy on Donald test csv
