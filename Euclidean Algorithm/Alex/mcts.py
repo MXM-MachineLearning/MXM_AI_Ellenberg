@@ -6,45 +6,51 @@ from util import *
 
 
 class Node:
-    def __init__(self, parent, state, n_children):
+    def __init__(self, parent, state, n_children, use_inv=False):
         self.state = np.array(state, dtype=np.int32)
         self.parent = parent
         self.visits = 0
         self.children = [None] * n_children
 
-        self.value = self.axis_dist_value(self.state)
+        self.is_terminal = self.terminal()
+        if use_inv:
+            self.value = self.inv_axis_dist_value()
+        else:
+            self.value = self.axis_dist_value()
         self.subtree_value = 0
-        self.is_terminal = self.terminal(self.state)
 
     def __str__(self):
         return ("State: " + str(self.state) + "; Value: " + str(self.value)
                 + "; Subtree Value: " + str(self.subtree_value))
 
-    @staticmethod
-    def terminal(state, k_eps=1e-4):
-        for i in state:
+    def terminal(self, k_eps=1e-4):
+        for i in self.state:
             if abs(i) <= k_eps:
                 return True
         return False
 
-    @staticmethod
-    def axis_dist_value(state):
-        if Node.terminal(state):
+    def axis_dist_value(self):
+        if self.is_terminal:
             return math.inf
-        x = np.min(np.abs(np.array(state)))
+        x = np.min(np.abs(self.state))
         return - x
+
+    def inv_axis_dist_value(self):
+        if self.is_terminal:
+            return math.inf
+        return 1 / np.min(np.abs(np.array(self.state))) ** 2
+
+    def is_leaf(self):
+        for i in self.state:
+            if i is not None:
+                return False
+        return True
 
 
 class MCTS:
     def __init__(self, actions, k_C):
         self.actions = actions
         self.k_C = k_C
-
-    def is_leaf(self, node):
-        for i in node.state:
-            if i is not None:
-                return False
-        return True
 
     def pick_child(self, node):
         # UCT
@@ -59,7 +65,7 @@ class MCTS:
         """
         Keep randomly picking children until reach terminal node or leaf
         """
-        while node is not None and node.is_terminal is False and not self.is_leaf(node):
+        while node is not None and node.is_terminal is False and not node.is_leaf():
             temp = random.choice(node.children)
             if temp is None:
                 break
@@ -121,7 +127,7 @@ class MCTS:
             n_child += temp[0]
             v_child += temp[1]
         if all_none:
-            root.subtree_value = 0
+            root.subtree_value = root.value
         else:
             root.subtree_value = v_child / (n_child + 1e-4)     # so root doesn't blow up
         return n_child, v_child
@@ -172,7 +178,7 @@ def test_simple(C, cases=100, lookahead=50):
     test_X, test_Y = get_data("test_data/test_simple.csv")
     test_Y.reshape(-1, 1)
 
-    simple_as = [a_mod, a_swap]
+    simple_as = [a_subtract, a_swap]
 
     acc = test(test_X[:cases], test_Y[:cases], C, comp_limit=lookahead, actions=simple_as)
     print("Simple Test Accuracy:", acc)
@@ -191,5 +197,9 @@ def test_quad(C, cases=100, lookahead=100):
 k_C = 1 / math.sqrt(2)
 k_cases = 50
 
-test_simple(k_C, k_cases, lookahead=5)
+test_simple(k_C, k_cases, lookahead=10)
+# ~90% accuracy while using mod transform
+# ~85% accuracy using subtract transform
+
 # test_quad(k_C, k_cases)
+# 10-20% accuracy with simple dist_to_axis

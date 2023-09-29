@@ -40,7 +40,6 @@ def a_subx(state):
     return state @ np.array([[1, 0], [-1, 1]])
 
 
-
 def UCT_fn(child, C):
     if child.visits == 0:
         return math.inf
