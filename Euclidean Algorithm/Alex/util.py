@@ -43,4 +43,4 @@ def a_subx(state):
 def UCT_fn(child, C):
     if child.visits == 0:
         return math.inf
-    return child.subtree_value + 2 * C * math.sqrt(2 * math.log2(1 + child.parent.visits) / child.visits)
+    return child.subtree_value + 2 * C * math.sqrt(2 * math.log2(child.parent.visits) / child.visits)

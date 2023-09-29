@@ -6,7 +6,7 @@ from util import *
 
 
 class Node:
-    def __init__(self, parent, state, n_children, use_inv=False):
+    def __init__(self, parent, state, n_children, use_inv=True):
         self.state = np.array(state, dtype=np.int32)
         self.parent = parent
         self.visits = 0
@@ -91,7 +91,7 @@ class MCTS:
         # if unexplored or non-terminal, get value
         state = self.actions[i](node.state)
         node.children[i] = Node(node, state, len(self.actions))
-        return node.children[i].value
+        return node.children[i]
 
     def tree_policy(self, node, computations):
         while node.is_terminal is False:
@@ -101,38 +101,26 @@ class MCTS:
             node = node.children[self.pick_child(node)]
         return node, computations
 
-    def prop(self, root, weighted=True):
+    def prop(self, node, k_weight=0.99):
         """
-        Recursively update node's value based off average raw values in subtree with root at node
+        Backprop up using sum of discounted rewards
 
-        :param root: root of subtree
+        :param node of subtree
         :param weighted: True for take weighted average for value
         :return: size of subtree, sum of values in subtree
         """
-        n_child = root.visits
-        v_child = root.value * root.visits
+        node.subtree_value = node.value
+        if not node.is_leaf():
+            for i in node.children:
+                if i is None:
+                    continue
+                node.subtree_value += k_weight * i.subtree_value
+        node.visits += 1
+        if node.parent is None:
+            return
+        self.prop(node.parent)
 
-        all_none = True
-        for i in root.children:
-            if i is None:
-                continue
-            all_none = False
-            i.visits += 1
-            n_child += i.visits
-            dv = i.value
-            if weighted:
-                dv *= i.visits
-            v_child += dv
-            temp = self.prop(i)
-            n_child += temp[0]
-            v_child += temp[1]
-        if all_none:
-            root.subtree_value = root.value
-        else:
-            root.subtree_value = v_child / (n_child + 1e-4)     # so root doesn't blow up
-        return n_child, v_child
-
-    def run(self, node, comp_limit=10):
+    def run(self, root, comp_limit=10):
         """
         Shoutout "A Survey of MCTS Methods"
         :param node: the current state
@@ -141,13 +129,10 @@ class MCTS:
         """
         comps = 0
         while comps < comp_limit:
-            c, comps = self.tree_policy(node, comps)
-            reward = self.default_policy(node)
-            # node.visits += 1
+            node, comps = self.tree_policy(root, comps)
             self.prop(node)
 
-        rv = self.pick_child(node)
-        # rv.parent = None
+        rv = self.pick_child(root)
         return rv
 
 # simple test
@@ -194,12 +179,12 @@ def test_quad(C, cases=100, lookahead=100):
     print("Quad Test Accuracy:", acc)
 
 
-k_C = 1 / math.sqrt(2)
+k_C = 1 / math.sqrt(2)  # satisfies Hoeffding Ineq (Kocsis and Szepesvari)
 k_cases = 50
 
-test_simple(k_C, k_cases, lookahead=10)
+test_simple(k_C, k_cases, lookahead=20)
 # ~90% accuracy while using mod transform
-# ~85% accuracy using subtract transform
+# ~90% accuracy using subtract transform
 
 # test_quad(k_C, k_cases)
 # 10-20% accuracy with simple dist_to_axis
