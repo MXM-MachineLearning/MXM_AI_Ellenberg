@@ -205,7 +205,7 @@ df['last_matrix'] = df['last_matrix'] - 1
 
 desired_output = torch.tensor(df['last_matrix'].tolist(), dtype=torch.float32).long()
 
-trained_model = train_model(input_data, desired_output, 100, learning_rate=0.0005, viz_accuracy=True)
+trained_model = train_model(input_data, desired_output, 100, learning_rate=0.001, viz_accuracy=True)
 
 test_df = pd.read_csv(f"two_rand_matrices_seed_{rand_seed}_test.csv")
 just_input_test = test_df.drop('last_matrix', axis=1)
