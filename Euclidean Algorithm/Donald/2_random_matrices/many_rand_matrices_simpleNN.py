@@ -183,7 +183,7 @@ for rand_seed in range(1, 100):
 
     desired_output = torch.tensor(df['last_matrix'].tolist(), dtype=torch.float32).long()
 
-    trained_model = train_model(input_data, desired_output, 100, learning_rate=0.001)
+    trained_model = train_model(input_data, desired_output, 500, learning_rate=0.001)
 
     test_df = pd.read_csv(f"two_rand_matrices_seed_{rand_seed}_test.csv")
     just_input_test = test_df.drop('last_matrix', axis=1)

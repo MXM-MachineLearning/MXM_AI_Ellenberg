@@ -44,7 +44,7 @@ class SimpleModel(nn.Module):
         
         return x
 
-def train_model(inputs, desired_outputs, num_epochs=100, learning_rate=0.01):
+def train_model(inputs, desired_outputs, num_epochs=500, learning_rate=0.01):
     # Convert inputs and desired_outputs to PyTorch tensors
     inputs = torch.tensor(inputs, dtype=torch.float32)
 
@@ -200,4 +200,4 @@ for rand_seed in range(1, 100):
     df2 = pd.DataFrame([[A, B, round(np.linalg.det(A)), round(np.linalg.det(B)), tested_accuracy]], columns=['A', 'B', 'detA', 'detB', 'accuracy'])
     accuracy_df = pd.concat([accuracy_df, df2])
 
-accuracy_df.to_csv(f'summarize_rand_matrices.csv', index=False)
+accuracy_df.to_csv(f'summarize_rand_matrices_500_epoch.csv', index=False)
