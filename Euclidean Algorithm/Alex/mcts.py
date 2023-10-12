@@ -148,7 +148,7 @@ def plot_db(mcts, actions, comp_limit):
     plt.show()
 
 
-def test(x, y, C, weight=1., comp_limit=10, actions=(a_subtract, a_swap), zero_index=False, want_plot=False):
+def test(x, y, C, weight=1., comp_limit=10, actions=(a_subtract, a_swap), zero_index=False, want_plot=True):
     correct = 0
     mcts = MCTS(actions, C, weight)
     guess_dist = [0] * len(actions)
