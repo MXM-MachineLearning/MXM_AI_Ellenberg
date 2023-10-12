@@ -1,6 +1,6 @@
-import math
-import numpy as np
 import random
+
+import matplotlib.pyplot as plt
 
 from util import *
 
@@ -21,7 +21,7 @@ class Node:
 
     def __str__(self):
         return ("State: " + str(self.state) + "; Value: " + str(self.value)
-                + "; Subtree Value: " + str(self.subtree_value))
+                + "; Subtree Value: " + str(self.subtree_value) + "; Visits:", str(self.visits))
 
     def terminal(self, k_eps=1e-4):
         for i in self.state:
@@ -38,7 +38,7 @@ class Node:
     def inv_axis_dist_value(self):
         if self.is_terminal:
             return math.inf
-        return 1 / np.min(np.abs(np.array(self.state))) ** 2
+        return 1 / np.min(np.abs(np.array(self.state)))
 
     def is_leaf(self):
         for i in self.state:
@@ -48,9 +48,10 @@ class Node:
 
 
 class MCTS:
-    def __init__(self, actions, k_C):
+    def __init__(self, actions, C, weight):
         self.actions = actions
-        self.k_C = k_C
+        self.k_C = C
+        self.k_weight = weight  # penalty on future reward estimations (per move in the future)
 
     def pick_child(self, node):
         # UCT
@@ -60,17 +61,6 @@ class MCTS:
                 continue
             t.append(UCT_fn(i, self.k_C))
         return int(random.choice(np.squeeze(np.argwhere(t == np.max(t)), axis=1)))
-
-    def default_policy(self, node):
-        """
-        Keep randomly picking children until reach terminal node or leaf
-        """
-        while node is not None and node.is_terminal is False and not node.is_leaf():
-            temp = random.choice(node.children)
-            if temp is None:
-                break
-            node = temp
-        return node.value
 
     def default_search(self, node):
         """
@@ -98,15 +88,15 @@ class MCTS:
             explored = self.default_search(node)
             if explored is not True:
                 return explored, computations + 1
-            node = node.children[self.pick_child(node)]
+            # node = node.children[self.pick_child(node)]
+            node = random.choice(node.children)
         return node, computations + 1
 
-    def prop(self, node, k_weight=0.99):
+    def prop(self, node):
         """
-        Backprop up using sum of discounted rewards
+        Backprop up using sum of rewards. Parent subtree value takes sum of child subtree values.
 
         :param node of subtree
-        :param weighted: True for take weighted average for value
         :return: size of subtree, sum of values in subtree
         """
         node.subtree_value = node.value
@@ -114,7 +104,7 @@ class MCTS:
             for i in node.children:
                 if i is None:
                     continue
-                node.subtree_value += k_weight * i.subtree_value
+                node.subtree_value += self.k_weight * i.subtree_value
         node.visits += 1
         if node.parent is None:
             return
@@ -137,60 +127,75 @@ class MCTS:
         rv = self.pick_child(root)
         return rv
 
-# simple test
-# start = Node(None, np.array((1, 1), dtype=np.float16))
-# decision = MCTS.MCTS(start, comp_limit=2)
-# print(decision)
-# print(start.children[0].subtree_value)
-# print(start.children[1].subtree_value)
-
 
 def get_data(fname):
     x = np.array(np.loadtxt(fname, delimiter=","), dtype=np.float16)
     return x[:,:-1], x[:,-1]
 
 
-def test(x, y, C, comp_limit=10, actions=(a_mod, a_swap), zero_index=False):
+def plot_db(mcts, actions, comp_limit):
+    k_dbound_size = 100
+    X = np.linspace(2, k_dbound_size, k_dbound_size-1)
+    Y = np.linspace(2, k_dbound_size, k_dbound_size-1)
+    action_plot = [[] for i in actions]
+    for i in X:
+        for j in Y:
+            result = mcts.run(Node(None, (i,j), len(actions)), comp_limit=comp_limit)
+            action_plot[result].append((i,j))
+    for i in range(len(action_plot)):
+        action = np.array(action_plot[i])
+        plt.scatter(action[:,0], action[:,1], color=("C"+str(i)), label=action)
+    plt.show()
+
+
+def test(x, y, C, weight=1., comp_limit=10, actions=(a_subtract, a_swap), zero_index=False, want_plot=False):
     correct = 0
-    mcts = MCTS(actions, C)
+    mcts = MCTS(actions, C, weight)
+    guess_dist = [0] * len(actions)
     if zero_index:
         y = y - np.ones(len(y))
     for i in range(len(x)):
         rv = mcts.run(Node(None, x[i], len(actions)), comp_limit=comp_limit)
         if rv == y[i] or rv is True:
             correct += 1
-        if (i+1) % 100 == 0:
-            print("epoch", i+1, ":", correct / (i+1))
-    return correct / len(x)
+        guess_dist[rv] += 1
+        # if (i+1) % 100 == 0:
+            # print("epoch", i+1, ":", correct / (i+1))
+
+    if want_plot:
+        # graphing decision boundary
+        plot_db(mcts, actions, comp_limit)
+    return correct / len(x), guess_dist
 
 
-def test_simple(C, cases=100, lookahead=50):
+def test_simple(C, cases=100, lookahead=50, weight=1.):
     test_X, test_Y = get_data("test_data/test_simple.csv")
     test_Y.reshape(-1, 1)
 
-    # simple_as = [a_subtract, a_swap]
-    simple_as = [a_mod, a_swap]
+    simple_as = [a_subtract, a_swap]
 
-    acc = test(test_X[:cases], test_Y[:cases], C, comp_limit=lookahead, actions=simple_as)
+    acc, guesses = test(test_X[:cases], test_Y[:cases], C, weight, comp_limit=lookahead, actions=simple_as)
     print("Simple Test Accuracy:", acc)
+    print("Guess Distribution:", guesses)
 
 
-def test_quad(C, cases=100, lookahead=100):
+def test_quad(C, cases=100, lookahead=100, weight=1.):
     test_X, test_Y = get_data("../Donald/four_step_euclidean/four_directions_test.csv") # thanks, donald
     test_Y.reshape(-1, 1)
 
     quad_as = [a_plsy, a_suby, a_plsx, a_subx]
 
-    acc = test(test_X[:cases], test_Y[:cases], C, comp_limit=lookahead, actions=quad_as, zero_index=True)
+    acc, guesses = test(test_X[:cases], test_Y[:cases], C, weight, comp_limit=lookahead, actions=quad_as, zero_index=True)
     print("Quad Test Accuracy:", acc)
+    print("Guess Distribution:", guesses)
 
 
 k_C = 1 / math.sqrt(2)  # satisfies Hoeffding Ineq (Kocsis and Szepesvari)
 k_cases = 2000
 
-# test_simple(k_C, k_cases, lookahead=10)
+test_simple(k_C, k_cases, lookahead=100)
 # ~98% accuracy while using mod transform
 # ~86% accuracy using subtract transform
 
-test_quad(k_C, k_cases, lookahead=10)
+test_quad(k_C, k_cases, lookahead=1000)
 # 40% accuracy on Donald test csv
