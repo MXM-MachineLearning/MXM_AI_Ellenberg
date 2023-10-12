@@ -194,8 +194,7 @@ k_C = 1 / math.sqrt(2)  # satisfies Hoeffding Ineq (Kocsis and Szepesvari)
 k_cases = 2000
 
 test_simple(k_C, k_cases, lookahead=100)
-# ~98% accuracy while using mod transform
-# ~86% accuracy using subtract transform
+# ~90% accuracy
 
 test_quad(k_C, k_cases, lookahead=1000)
-# 40% accuracy on Donald test csv
+# 8% accuracy on Donald test csv
