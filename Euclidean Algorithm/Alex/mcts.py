@@ -168,33 +168,24 @@ def test(x, y, C, weight=1., comp_limit=10, actions=(a_subtract, a_swap), zero_i
     return correct / len(x), guess_dist
 
 
-def test_simple(C, cases=100, lookahead=50, weight=1.):
-    test_X, test_Y = get_data("test_data/test_simple.csv")
+def run_test(data_name, actions, C, cases=100, lookahead=100, weight=1., zero_index=False):
+    test_X, test_Y = get_data(data_name)
     test_Y.reshape(-1, 1)
 
-    simple_as = [a_subtract, a_swap]
-
-    acc, guesses = test(test_X[:cases], test_Y[:cases], C, weight, comp_limit=lookahead, actions=simple_as)
-    print("Simple Test Accuracy:", acc)
+    acc, guesses = test(test_X[:cases], test_Y[:cases],
+                        C, weight, comp_limit=lookahead, actions=actions, zero_index=zero_index)
+    print("Test Accuracy:", acc)
     print("Guess Distribution:", guesses)
 
 
-def test_quad(C, cases=100, lookahead=100, weight=1.):
-    test_X, test_Y = get_data("../Donald/four_step_euclidean/four_directions_test.csv") # thanks, donald
-    test_Y.reshape(-1, 1)
-
-    quad_as = [a_plsy, a_suby, a_plsx, a_subx]
-
-    acc, guesses = test(test_X[:cases], test_Y[:cases], C, weight, comp_limit=lookahead, actions=quad_as, zero_index=True)
-    print("Quad Test Accuracy:", acc)
-    print("Guess Distribution:", guesses)
-
+dual_file = "test_data/test_simple.csv"
+quad_file = "../Donald/four_step_euclidean/four_directions_test.csv"     # thanks, donald
 
 k_C = 1 / math.sqrt(2)  # satisfies Hoeffding Ineq (Kocsis and Szepesvari)
 k_cases = 2000
 
-test_simple(k_C, k_cases, lookahead=100)
+run_test(dual_file, [a_subtract, a_swap], k_C, k_cases, lookahead=1000)
 # ~90% accuracy
 
-test_quad(k_C, k_cases, lookahead=1000)
+run_test(quad_file, [a_plsy, a_suby, a_plsx, a_subx], k_C, k_cases, lookahead=1000, zero_index=True)
 # 8% accuracy on Donald test csv
