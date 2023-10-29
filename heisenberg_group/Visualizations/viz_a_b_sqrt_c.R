@@ -1,6 +1,6 @@
 library(tidyverse)
 
-df = read_csv("viz_a_b_sqrt_c.csv")
+df = read_csv("../Data_Generation/Data_files/viz_a_b_sqrt_c.csv")
 
 ggplot(df, aes(x=min_a_b_sqrt_c, y=num_moves_Q_learning_needs)) + 
   geom_point(color="blue", alpha=0.05) +
