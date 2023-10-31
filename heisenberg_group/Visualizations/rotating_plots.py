@@ -56,7 +56,6 @@ for lower, upper, name in ranges:
         plt.savefig(temp_file)
         with Image.open(temp_file) as img:
             frames.append(img.copy())  # copy image to frames list
-            img.close()  # explicitly close the image
 
         try:
             os.remove(temp_file)
