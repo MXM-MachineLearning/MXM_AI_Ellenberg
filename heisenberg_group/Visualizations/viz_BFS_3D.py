@@ -10,7 +10,7 @@ ax = plt.axes(projection='3d')
 df = pd.read_csv("../Data_Generation/Data_files/bfs_heisenberg_data.csv")
 
 # this filtering is necessary to limit the number of points we plot because otherwise this is slow
-df = df[df['num_steps'] < 10]
+# df = df[df['num_steps'] < 8]
 
 # Create data
 x = df["val1"]
@@ -38,6 +38,6 @@ def update(angle):
 ani = FuncAnimation(fig, update, frames=np.arange(0, 360, 2), blit=False)
 
 # Save animation as GIF
-ani.save('rotation.gif', writer='imagemagick', fps=20)
+ani.save('rotation_more_points.gif', writer='imagemagick', fps=20)
 
-plt.show()
+# plt.show()
