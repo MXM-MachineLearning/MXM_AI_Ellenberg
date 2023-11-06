@@ -1,22 +1,23 @@
 import random
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 from util import *
 
 
 class Node:
-    def __init__(self, parent, state, n_children, use_inv=True):
+    def __init__(self, parent, state, n_children, terminal_rwd, depth, use_inv=True):
         self.state = np.array(state, dtype=np.int32)
         self.parent = parent
         self.visits = 0
         self.children = [None] * n_children
-
+        self.depth = depth
         self.is_terminal = self.terminal()
         if use_inv:
-            self.value = self.inv_axis_dist_value()
+            self.value = self.inv_axis_dist_value(terminal_rwd)
         else:
-            self.value = self.axis_dist_value()
+            self.value = self.axis_dist_value(terminal_rwd)
         self.subtree_value = 0
 
     def __str__(self):
@@ -29,16 +30,16 @@ class Node:
                 return True
         return False
 
-    def axis_dist_value(self):
+    def axis_dist_value(self, terminal_rwd):
         if self.is_terminal:
-            return math.inf
+            return terminal_rwd
         x = np.min(np.abs(self.state))
-        return - x
+        return - x - self.depth
 
-    def inv_axis_dist_value(self):
+    def inv_axis_dist_value(self, terminal_rwd):
         if self.is_terminal:
-            return math.inf
-        return 1 / np.min(np.abs(np.array(self.state)))
+            return terminal_rwd
+        return 1 / np.min(np.abs(np.array(self.state))) - self.depth
 
     def is_leaf(self):
         for i in self.state:
@@ -46,12 +47,18 @@ class Node:
                 return False
         return True
 
+    @staticmethod
+    def completion_value(root): # for the root node
+        return np.linalg.norm(root.state)
+
 
 class MCTS:
     def __init__(self, actions, C, weight):
         self.actions = actions
         self.k_C = C
-        self.k_weight = weight  # penalty on future reward estimations (per move in the future)
+        self.k_weight = weight  # diminish future reward estimations (per move in the future)
+        self.k_move_penalty = -1    # penalty for one move without finding a terminal state
+        self.root = None
 
     def pick_child(self, node):
         # UCT
@@ -62,7 +69,7 @@ class MCTS:
             t.append(UCT_fn(i, self.k_C))
         return int(random.choice(np.squeeze(np.argwhere(t == np.max(t)), axis=1)))
 
-    def default_search(self, node):
+    def default_search(self, node, depth):
         """
         If node is fully explored (neither child is None), return True
         Otherwise, initialize value of a random unexplored next state
@@ -80,24 +87,24 @@ class MCTS:
         i = random.choice(possible)
         # if unexplored or non-terminal, get value
         state = self.actions[i](node.state)
-        node.children[i] = Node(node, state, len(self.actions))
+        node.children[i] = Node(node, state, len(self.actions), Node.completion_value(self.root), depth=depth)
         return node.children[i]
 
-    def tree_policy(self, node, computations):
+    def tree_policy(self, node, computations, depth=0):
         while node.is_terminal is False:
-            explored = self.default_search(node)
+            explored = self.default_search(node, depth)
             if explored is not True:
                 return explored, computations + 1
-            # node = node.children[self.pick_child(node)]
-            node = random.choice(node.children)
+            node = node.children[self.pick_child(node)]
+            # node = random.choice(node.children)
+            depth += 1
         return node, computations + 1
 
-    def prop(self, node):
+    def sum_prop(self, node):
         """
-        Backprop up using sum of rewards. Parent subtree value takes sum of child subtree values.
+        Backprop up from a leaf using sum of rewards. Parent subtree value takes sum of child subtree values.
 
-        :param node of subtree
-        :return: size of subtree, sum of values in subtree
+        :param node: of subtree
         """
         node.subtree_value = node.value
         if not node.is_leaf():
@@ -108,7 +115,7 @@ class MCTS:
         node.visits += 1
         if node.parent is None:
             return
-        self.prop(node.parent)
+        self.sum_prop(node.parent)
 
     def run(self, root, comp_limit=10):
         """
@@ -117,12 +124,13 @@ class MCTS:
         :param comp_limit: max number of possible future scenarios to compute (carries over)
         :return: index corresponding to best action
         """
+        self.root = root
         if root.is_terminal:
             return True
         comps = 0
         while comps < comp_limit:
-            node, comps = self.tree_policy(root, comps)
-            self.prop(node)
+            node, comps = self.tree_policy(self.root, comps, depth=0)
+            self.sum_prop(node)
 
         rv = self.pick_child(root)
         return rv
@@ -133,14 +141,13 @@ def get_data(fname):
     return x[:,:-1], x[:,-1]
 
 
-def plot_db(mcts, actions, comp_limit):
-    k_dbound_size = 100
-    X = np.linspace(2, k_dbound_size, k_dbound_size-1)
-    Y = np.linspace(2, k_dbound_size, k_dbound_size-1)
+def plot_db(mcts, actions, comp_limit, ranges):
+    X = ranges[0]
+    Y = ranges[1]
     action_plot = [[] for i in actions]
     for i in X:
         for j in Y:
-            result = mcts.run(Node(None, (i,j), len(actions)), comp_limit=comp_limit)
+            result = mcts.run(Node(None, (i,j), len(actions),0, np.linalg.norm([i,j])), comp_limit=comp_limit)
             action_plot[result].append((i,j))
     for i in range(len(action_plot)):
         action = np.array(action_plot[i])
@@ -148,32 +155,32 @@ def plot_db(mcts, actions, comp_limit):
     plt.show()
 
 
-def test(x, y, C, weight=1., comp_limit=10, actions=(a_subtract, a_swap), zero_index=False, want_plot=True):
+def test(x, y, C, weight=1., comp_limit=10, actions=(a_subtract, a_swap), zero_index=False, dbs=None):
     correct = 0
     mcts = MCTS(actions, C, weight)
     guess_dist = [0] * len(actions)
     if zero_index:
         y = y - np.ones(len(y))
     for i in range(len(x)):
-        rv = mcts.run(Node(None, x[i], len(actions)), comp_limit=comp_limit)
+        rv = mcts.run(Node(None, x[i], len(actions), 0, np.linalg.norm(x[i])), comp_limit=comp_limit)
         if rv == y[i] or rv is True:
             correct += 1
         guess_dist[rv] += 1
         # if (i+1) % 100 == 0:
             # print("epoch", i+1, ":", correct / (i+1))
 
-    if want_plot:
+    if dbs is not None:
         # graphing decision boundary
-        plot_db(mcts, actions, comp_limit)
+        plot_db(mcts, actions, comp_limit, ranges=dbs)
     return correct / len(x), guess_dist
 
 
-def run_test(data_name, actions, C, cases=100, lookahead=100, weight=1., zero_index=False):
+def run_test(data_name, actions, C, cases=100, lookahead=100, weight=1., zero_index=False, dbs=None):
     test_X, test_Y = get_data(data_name)
     test_Y.reshape(-1, 1)
 
     acc, guesses = test(test_X[:cases], test_Y[:cases],
-                        C, weight, comp_limit=lookahead, actions=actions, zero_index=zero_index)
+                        C, weight, comp_limit=lookahead, actions=actions, zero_index=zero_index, dbs=dbs)
     print("Test Accuracy:", acc)
     print("Guess Distribution:", guesses)
 
@@ -184,8 +191,14 @@ quad_file = "../Donald/four_step_euclidean/four_directions_test.csv"     # thank
 k_C = 1 / math.sqrt(2)  # satisfies Hoeffding Ineq (Kocsis and Szepesvari)
 k_cases = 2000
 
-run_test(dual_file, [a_subtract, a_swap], k_C, k_cases, lookahead=1000)
+k_dbound_size = 100
+
+db2 = np.linspace(2, k_dbound_size, k_dbound_size - 1)
+two_dbs =[db2, db2]
+run_test(dual_file, [a_subtract, a_swap], k_C, k_cases, lookahead=10, dbs=two_dbs)
 # ~90% accuracy
 
-run_test(quad_file, [a_plsy, a_suby, a_plsx, a_subx], k_C, k_cases, lookahead=1000, zero_index=True)
+db4 = np.linspace(-k_dbound_size/2, k_dbound_size/2, k_dbound_size+1)
+quad_dbs = [db4, db4]
+run_test(quad_file, [a_plsy, a_suby, a_plsx, a_subx], k_C, k_cases, lookahead=100, zero_index=True, dbs=quad_dbs)
 # 8% accuracy on Donald test csv
