@@ -1,5 +1,6 @@
 import math
 import numpy as np
+import torch
 
 
 def a_identity(state):
@@ -19,25 +20,24 @@ def a_mod(state):
         return state[0], state[1]
     return state[0], state[1] % state[0]
 
-
-def a_swap(state):
+def a_swp(state):
     return state[1], state[0]
 
 
-def a_plsy(state):
-    return state @ np.array([[1, 1], [0, 1]])
+def a_plsy(state, device="cpu"):
+    return state @ torch.tensor([[1, 1], [0, 1]],dtype=torch.float).to(device)
 
 
-def a_suby(state):
-    return state @ np.array([[1, -1], [0, 1]])
+def a_suby(state, device="cpu"):
+    return state @ torch.tensor([[1, -1], [0, 1]],dtype=torch.float).to(device)
 
 
-def a_plsx(state):
-    return state @ np.array([[1, 0], [1, 1]])
+def a_plsx(state, device="cpu"):
+    return state @ torch.tensor([[1, 0], [1, 1]],dtype=torch.float).to(device)
 
 
-def a_subx(state):
-    return state @ np.array([[1, 0], [-1, 1]])
+def a_subx(state, device="cpu"):
+    return state @ torch.tensor([[1, 0], [-1, 1]],dtype=torch.float).to(device)
 
 
 def UCT_fn(child, C):
