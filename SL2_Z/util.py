@@ -1,6 +1,5 @@
 import numpy as np
 import random
-import pandas as p
 
 def get_generators(mult):
     A = np.eye(2)
@@ -105,29 +104,3 @@ class TabularQEnv:
                 return i
             state = apply_action(state, self.actions[self.best_move(state)])
         return -1
-
-
-def append_info_states_csv(fname_i, of_train, of_test, Q_env, prop_test=0.6):
-    """
-    Given CSV with various states and tabular-Q environment trained on a set containing those states, 
-    estimate next best move + number of moves to identity, and append them to the state information.
-    Then, split that dataset into train/test and write to corresponding CSVs
-    Args:
-        fname_i: csv to append to
-        of_train: where to write final train csv
-        of_test: where to write final test csv
-        Q_env: TabularQEnv used to make predictons
-        prop_test: proportion of data to be used for training
-    """
-    test_df = pd.read_csv(fname_i)
-    test_df['num_moves_Q_learning_needs'] = test_df.apply(lambda row: Q_env.play(df_row_to_mat(row)), axis=1)
-    filtered_df = test_df[test_df['num_moves_Q_learning_needs']!=100]
-    filtered_df['first_move_by_Q_learning'] = filtered_df.apply(lambda row: Q_env.best_move(df_row_to_mat(row)), axis=1)
-
-    bound = int(filtered_df.shape[0] * prop_test)
-    plus_one = bound+1
-    train = filtered_df.iloc[1:bound]
-    test = filtered_df.iloc[plus_one:filtered_df.shape[0]]
-
-    train.to_csv(of_train, index=False)
-    test.to_csv(of_test, index=False)
