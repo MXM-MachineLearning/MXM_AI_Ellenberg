@@ -1,20 +1,19 @@
 import numpy as np
 import random
-import pandas as pd
+import pandas as p
 
-k_sl2z_2s_gen = np.array([
-    np.array([[1, 2], [0, 1]]),
-    np.array([[1, 0], [2, 1]]),
-    np.linalg.inv(np.array([[1, 2], [0, 1]])),
-    np.linalg.inv(np.array([[1, 0], [2, 1]]))
-])
+def get_generators(mult):
+    A = np.eye(2)
+    B = A.copy()
+    A[0][1] = mult
+    B[1][0] = mult
+    return np.array([A, B, np.linalg.inv(A), np.linalg.inv(B)])
+    
+k_sl2z_gen = get_generators(1)
 
-k_sl2z_3s_gen = np.array([
-    np.array([[1, 3], [0, 1]]),
-    np.array([[1, 0], [3, 1]]),
-    np.linalg.inv(np.array([[1, 3], [0, 1]])),
-    np.linalg.inv(np.array([[1, 0], [3, 1]]))
-])
+k_sl2z_2s_gen = get_generators(2)
+
+k_sl2z_3s_gen = get_generators(3)
 
 def df_row_to_mat(row):
     return np.array([
@@ -25,8 +24,8 @@ def df_row_to_mat(row):
 def matrix_to_tuple(matrix):
     return tuple(matrix.flatten())
 
-def is_done(m, dims) -> bool:
-    return np.allclose(m, np.eye(dims))
+def is_done(m) -> bool:
+    return np.allclose(m, np.eye(m.shape[0]))
 
 def tuple_to_matrix(tu):
     return np.array([[tuple[0], tuple[1]], [tuple[2], tuple[3]]])
@@ -38,15 +37,16 @@ def mod_2_is_identity(test_tuple):
             test_tuple[2] % 2 == 0 and 
             test_tuple[3] % 2 == 1)
 
+def apply_action(m, action) -> np.array:
+    return m @ action
+
+
 class TabularQEnv:
     def __init__(self, actions, Q_table, rwd_fn, max_rwd) -> None:
         self.actions = actions
         self.Q_table = Q_table
         self.rwd_fn = rwd_fn
         self.max_rwd = max_rwd
-
-    def apply_action(self, m, action) -> np.array:
-        return m @ self.actions[action]
 
     def get_next_possible_Qs(self, state):
         vals = [0,0,0,0]
@@ -101,9 +101,9 @@ class TabularQEnv:
     
     def play(self, state, max_steps=50) -> int:
         for i in range(max_steps):
-            if is_done(state, state.shape[0]):
+            if is_done(state):
                 return i
-            state = self.apply_action(state, self.best_move(state))
+            state = apply_action(state, self.actions[self.best_move(state)])
         return -1
 
 
