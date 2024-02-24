@@ -27,7 +27,7 @@ def is_done(m) -> bool:
     return np.allclose(m, np.eye(m.shape[0]))
 
 def tuple_to_matrix(tu):
-    return np.array([[tuple[0], tuple[1]], [tuple[2], tuple[3]]])
+    return np.array([[tu[0], tu[1]], [tu[2], tu[3]]])
 
 def mod_2_is_identity(test_tuple):
     assert len(test_tuple)==4
