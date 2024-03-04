@@ -1,5 +1,5 @@
 # MXM-AI-Fall-2023
-Code developed for MXM Research Fall 2023 as part of Jordan Ellenberg's project with the guidance of graduate student Karan Srivastava. We found the fastest ways to generate matrices in certain groups by gamifiying the process and applying reinforcement learning, then compared them to current research.
+Code developed for MXM Research 2023-24 as part of Jordan Ellenberg's project with the guidance of graduate student Karan Srivastava. We found the fastest ways to generate matrices in certain groups by gamifiying the process and applying reinforcement learning, then compared them to current research.
 
 ## [Final Poster](https://github.com/dgconway/MXM-AI-Fall-2023/blob/main/MXM_AI_Poster_F23.pdf)
 
