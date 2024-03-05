@@ -5,7 +5,7 @@ import time
 
 start_time = time.time()
 
-DISTANCE = 10
+DISTANCE = 30
 # Matrix definitions (A, B, C, D, I)
 A = np.array([[1, 1, 0], [0, 1, 0], [0, 0, 1]])
 B = np.array([[1, -1, 0], [0, 1, 0], [0, 0, 1]])
@@ -20,7 +20,7 @@ def matrix_to_tuple(matrix):
 def apply_mat(mat, index):
     return [A, B, C, D][index] @ mat
 
-# Modified BFS
+# This BFS saves both optimal sets and all optimal paths.
 def modified_bfs(start, distance):
     queue = deque([[start, 0, [[]]]])
     state_distance = {}
