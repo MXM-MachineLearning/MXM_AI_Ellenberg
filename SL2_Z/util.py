@@ -1,12 +1,12 @@
-import numpy as np
 import random
+import torch
 
 def get_generators(mult):
-    A = np.eye(2)
-    B = A.copy()
+    A = torch.eye(2)
+    B = A.clone().detach()
     A[0][1] = mult
     B[1][0] = mult
-    return np.array([A, B, np.linalg.inv(A), np.linalg.inv(B)])
+    return (A.long(), B.long(), torch.linalg.inv(A).long(), torch.linalg.inv(B).long())
     
 k_sl2z_gen = get_generators(1)
 
@@ -15,7 +15,7 @@ k_sl2z_2s_gen = get_generators(2)
 k_sl2z_3s_gen = get_generators(3)
 
 def df_row_to_mat(row):
-    return np.array([
+    return torch.tensor([
         [int(row['val1']), int(row['val2'])], 
         [int(row['val3']), int(row['val4'])]
         ])
@@ -24,10 +24,10 @@ def matrix_to_tuple(matrix):
     return tuple(matrix.flatten())
 
 def is_done(m) -> bool:
-    return np.allclose(m, np.eye(m.shape[0]))
+    return torch.equal(m, torch.eye(m.shape[0]))
 
 def tuple_to_matrix(tu):
-    return np.array([[tu[0], tu[1]], [tu[2], tu[3]]])
+    return torch.tensor(tu).reshape(2,2)
 
 def mod_2_is_identity(test_tuple):
     assert len(test_tuple)==4
@@ -36,7 +36,7 @@ def mod_2_is_identity(test_tuple):
             test_tuple[2] % 2 == 0 and 
             test_tuple[3] % 2 == 1)
 
-def apply_action(m, action) -> np.array:
+def apply_action(m, action) -> torch.tensor:
     return m @ action
 
 
@@ -72,19 +72,19 @@ class TabularQEnv:
             return random.choice(range(len(self.actions)))
         
         # if we have visited this state before, return the current best choice
-        return np.argmax(vals)
+        return torch.argmax(vals)
 
     # over a given state, return the maximum value of the table for that state
     def __max_a_prime(self, *args, **kwargs):
         return max(self.get_next_possible_Qs(*args, **kwargs))
 
-    def __get_next_step(self, oldObs, action) -> tuple[np.array, int, bool]:
+    def __get_next_step(self, oldObs, action) -> tuple[torch.tensor, int, bool]:
         next_state = oldObs @ self.actions[action]
         curReward = self.rwd_fn(next_state)
         done = curReward==self.max_rwd
         return (next_state, curReward, done)
     
-    def step(self, lr, gamma, eps, state) -> tuple[np.array, int, bool]:
+    def step(self, lr, gamma, eps, state) -> tuple[torch.tensor, int, bool]:
         # perform an epsilon greedy action 
         # Q(s, a) = (1-lr)Q(s, a) + (lr)(r + DISCOUNT_FACTOR(max a'(Q(s', a'))))
         action = self.__epsilon_greedy_search(Epsilon=eps, state=state)
