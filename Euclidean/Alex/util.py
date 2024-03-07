@@ -63,3 +63,302 @@ def determine_action(state):
     if angle < math.pi * 3/4:
         return 2
     return 0
+
+# copy pasted from deep_mcts.ipynb to satisfy ProcessPoolExecutor reqs
+import threading
+import torch.nn as nn
+import random
+import concurrent
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+class Node:
+    def __init__(self, parent, state, n_children, value, depth=0):
+        self.state = state
+        self.parent = parent
+        self.visits = 0
+        self.depth = depth
+        self.children = [None] * n_children
+        self.is_terminal = terminal(self.state)
+        self.value = value
+        self.subtree_value = torch.zeros(1).to(device)
+
+        # for more on virtual loss/shared tree search, see "Parallel MCTS" by Chaslot et al. 
+        # https://dke.maastrichtuniversity.nl/m.winands/documents/multithreadedMCTS2.pdf
+        self.active_threads = 0
+        self.lock = threading.Lock()
+
+
+    def __str__(self):
+        return ("State: " + str(self.state) + "; Value: " + str(self.value)
+                + "; Subtree Value: " + str(self.subtree_value) + "; Visits:", str(self.visits))
+
+    def is_leaf(self):
+        for i in self.state:
+            if i is not None:
+                return False
+        return True
+    
+
+def get_train_data(fname):
+    x = np.loadtxt(fname, delimiter=",")
+    return torch.tensor([x[:,2], x[:,2:]], dtype=torch.float)
+
+def get_nonterm_rwd(mcts):
+    return -mcts.max_depth
+
+def get_terminal_rwd(terminal_depth, start):
+    return -terminal_depth + torch.linalg.norm(start)
+    
+# override the one in util.py
+def UCT_fn(child, C):
+    if child.visits == 0:
+        return math.inf
+    uct = child.subtree_value + 2 * C * math.sqrt(2 * math.log2(child.parent.visits) / child.visits)
+    return uct * (-1 - child.active_threads)
+    
+class MCTS:
+    def __init__(self, actions, C, weight, value_fn):
+        self.actions = actions
+        self.k_C = C
+        self.k_weight = weight
+        self.value_fn = value_fn
+        self.max_depth = 0
+        self.terminal = None    # None if no terminal state found; terminal Node if found
+        self.root = None
+        self.propagation_lock = threading.Lock()
+
+    def pick_child(self, node):
+        # UCT
+        t = []
+        for i in node.children:
+            if i is None:
+                continue
+            t.append(UCT_fn(i, self.k_C))
+
+        if len(t) == 0:
+            return random.randint(0, len(node.children)-1)
+        
+        t = torch.tensor(t)
+
+        rvs = torch.squeeze(torch.argwhere(t == torch.max(t)), axis=1)
+        return int(random.choice(rvs))
+
+    def default_search(self, node):
+        """
+        If node is fully explored (neither child is None), return True
+        Otherwise, initialize value of a random unexplored next state
+
+        :param node: node to search from
+        :return: if fully explored, True. Else, value of the random unexplored next state
+        """
+        possible = []
+        for i in range(len(node.children)):
+            if node.children[i] is None:
+                possible.append(i)
+        if len(possible) == 0:
+            return True
+
+        i = random.choice(possible)
+        # if unexplored or non-terminal, get value
+        state = self.actions[i](node.state.flatten()).float().to(device)
+        state = state.reshape(node.state.shape)
+        # child_val = self.value_fn(state) - node.depth - 1  # give penalty -1 for each additional step taken
+        child_val = self.value_fn(state)
+        child_val = child_val.flatten()[0]
+
+        with node.lock:
+            node.children[i] = Node(node, state, len(self.actions), value=child_val, depth=node.depth+1)
+
+        # if new Node is terminal, take it as the tree's terminal if it takes less time to reach than current terminal
+        # if node.children[i].is_terminal:
+        #     # if terminal, add reward of ||start_vec||_2^2
+        #     node.children[i].value += torch.linalg.vector_norm(torch.square(self.root.state)).item()
+        #     if self.terminal is None or node.children[i].depth < self.terminal.depth:
+        #         self.terminal = node.children[i]
+
+        with self.propagation_lock:
+            if node.children[i].depth > self.max_depth:
+                self.max_depth = node.children[i].depth
+        return node.children[i]
+
+    def tree_policy(self, node):
+        prev = None
+        while node.is_terminal is False:
+            # add some virtual loss to the node for each thread that's exploring (released after back propagating)
+            with node.lock:
+                node.active_threads += 1
+
+            explored = self.default_search(node)
+            if explored is not True:
+                return explored
+            node = node.children[self.pick_child(node)]
+            prev = node
+            # node = random.choice(node.children)
+        return prev
+
+    def mean_prop(self, node):
+        """
+        Backprop up from a leaf, where subtree_value is the average of a node's rewards and its subtree's rewards
+
+        :param node: of subtree
+        """
+        with node.lock:
+            node.subtree_value = torch.zeros(1).to(device)
+            node.subtree_value += node.value
+            valid_children = 0
+            if not node.is_leaf():
+                for i in node.children:
+                    if i is None:
+                        continue
+                    node.subtree_value += self.k_weight * i.subtree_value
+                    valid_children += 1
+            node.subtree_value /= valid_children + 1
+            node.visits += 1
+
+            # remove virtual loss from node after thread done exploring its subtree
+            node.active_threads -= 1
+
+            if node.parent is None:
+                return
+        self.mean_prop(node.parent)
+
+    def explore_once(self, number):
+        node = self.tree_policy(self.root)
+        with self.propagation_lock:
+            self.mean_prop(node)
+        return number
+
+    def run(self, root, comp_limit=10, max_threads=5):
+        """
+        Shoutout "A Survey of MCTS Methods"
+        :param root: the current state
+        :param comp_limit: max number of possible future scenarios to compute (carries over)
+        :return: index corresponding to best action
+        """
+        self.root = root
+        if self.root.is_terminal:
+            return True
+
+        # spawn new thread for each computation
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
+            executor.map(self.explore_once, range(comp_limit))
+
+        rv = self.pick_child(self.root)
+
+        if False:
+            print("root state:", root.state)
+            print("child states: ",end="")
+            for child in root.children:
+                print(child.state, end=",")
+            print()
+        return rv
+    
+    def generate(self, init_state, actions):
+        self.root = Node(None, init_state, n_children=len(self.actions), value=self.value_fn(init_state), depth=0)
+        curr = self.root
+        r_nodes = []
+        for i in actions:
+            newstate = self.actions[i](curr.state)
+            n = Node(parent=curr,
+                     state=newstate,
+                     n_children=len(self.actions),
+                     value=self.value_fn(newstate),
+                     depth=curr.depth + 1)
+            curr.children[i] = n
+            curr = n            
+            r_nodes.append(n)
+        return r_nodes
+
+        
+
+class Loss(nn.Module):
+    def __init__(self):
+        super(Loss, self).__init__()
+        self.v_loss_fn = torch.nn.MSELoss()
+        self.p_loss_fn = torch.nn.CrossEntropyLoss()
+
+    def forward(self, v_out, v_target, p_out, p_target):
+        """
+        Loss function designed to reward successful game completion while taking the least amount of steps possible
+        Adapted from:
+            - "Mastering the game of Go without human knowledge" (Silver et al)
+            - "Discovering faster matrix multiplication algorithms with reinforcement learning" (Fawzi et al)
+
+        :param v_out: the value outputed for the state by NN
+        :param p_out: the policy outputed for the state by NN
+        :param v_target: target value output
+        :return: total loss
+        """
+        loss = self.v_loss_fn(v_out, v_target)
+        loss += self.p_loss_fn(p_out, p_target).sum()
+        return loss
+
+
+class ValueNN(nn.Module):
+    def __init__(self, state_size):
+        super(ValueNN, self).__init__()
+        self.flatten = nn.Flatten()
+        self.stack = nn.Sequential(
+            nn.Linear(state_size, 128),
+            nn.GELU(),
+            nn.Linear(128, 64),
+            nn.GELU(),
+            nn.Linear(64, 16),
+            nn.GELU(),
+            nn.Linear(16, 1),
+        )
+    def forward(self, x):
+#        x = self.flatten(x)
+#        x = self.stack(x).flatten()
+#        value = x[0:1].reshape((1,1))
+#        return value
+        return self.stack(x)
+
+
+class PolicyNN(nn.Module):
+    def __init__(self, state_size, n_actions):
+        super(PolicyNN, self).__init__()
+        self.flatten = nn.Flatten()
+        self.stack = nn.Sequential(
+            nn.Linear(state_size, 128),
+            nn.GELU(),
+            nn.Linear(128, 64),
+            nn.GELU(),
+            nn.Linear(64, 16),
+            nn.GELU(),
+            nn.Linear(16, n_actions),
+        )
+        self.policy_activation = nn.Softmax(dim=1)
+    def forward(self, x):
+        x = self.policy_activation(self.stack(x))#.flatten())
+        policy = torch.clamp(x,min=1e-8,max=1-(1e-7))
+        return policy
+
+
+def one_batch(payload):
+    start, actions, value_fn, comp_limit, k_C, k_thread_count_limit = payload
+    mcts = MCTS(actions, C=k_C, weight=1, value_fn=value_fn)
+
+    value = mcts.value_fn(start).flatten().to(device)
+
+    start_node = Node(None, start, len(actions), value, 0)
+
+    mcts.run(start_node, comp_limit=comp_limit, max_threads=k_thread_count_limit)
+
+
+    # get attributes of game just played
+    v_out = start_node.subtree_value.to(device)
+    v_target = get_nonterm_rwd(mcts)
+    if mcts.terminal is not None:
+        v_target = get_terminal_rwd(mcts.terminal.depth, start)
+    v_target = torch.tensor(v_target,dtype=v_out.dtype).to(device)
+
+
+    visits = []
+    for i in start_node.children:
+        if i is None:
+            visits.append(0)
+        else:
+            visits.append(i.visits)
+    visits = torch.tensor(visits, dtype=torch.float).to(device)
+    p_sampled = visits / torch.sum(visits)
+    return torch.cat((start,v_target.flatten().unsqueeze(0), p_sampled.flatten().unsqueeze(0)),dim=1)
