@@ -33,10 +33,10 @@ def a_subx(state, device="cpu"):
     return state @ torch.tensor([[1, 0], [-1, 1]],dtype=torch.float).to(device)
 
 
-def UCT_fn(child, C):
-    if child.visits == 0:
-        return math.inf
-    return child.subtree_value + 2 * C * math.sqrt(2 * math.log2(child.parent.visits) / child.visits)
+# def UCT_fn(child, C):
+#     if child.visits == 0:
+#         return math.inf
+#     return child.subtree_value + 2 * C * math.sqrt(2 * math.log2(child.parent.visits) / child.visits)
 
 k_2actions = (a_suby, a_swp)
 k_4actions = (a_plsy, a_suby, a_plsx, a_subx)
@@ -113,7 +113,7 @@ def UCT_fn(child, C):
     if child.visits == 0:
         return math.inf
     uct = child.subtree_value + 2 * C * math.sqrt(2 * math.log2(child.parent.visits) / child.visits)
-    return uct * (-1 - child.active_threads)
+    return uct - child.active_threads
     
 class MCTS:
     def __init__(self, actions, C, weight, value_fn):
@@ -161,12 +161,12 @@ class MCTS:
         # if unexplored or non-terminal, get value
         state = self.actions[i](node.state.flatten()).float().to(device)
         state = state.reshape(node.state.shape)
-        # child_val = self.value_fn(state) - node.depth - 1  # give penalty -1 for each additional step taken
-        child_val = self.value_fn(state)
+        child_val = self.value_fn(state) - node.depth - 1  # give penalty -1 for each additional step taken
+        # child_val = self.value_fn(state)
         child_val = child_val.flatten()[0]
 
-        with node.lock:
-            node.children[i] = Node(node, state, len(self.actions), value=child_val, depth=node.depth+1)
+        # with node.lock:
+        node.children[i] = Node(node, state, len(self.actions), value=child_val, depth=node.depth+1)
 
         # if new Node is terminal, take it as the tree's terminal if it takes less time to reach than current terminal
         # if node.children[i].is_terminal:
@@ -184,8 +184,8 @@ class MCTS:
         prev = None
         while node.is_terminal is False:
             # add some virtual loss to the node for each thread that's exploring (released after back propagating)
-            with node.lock:
-                node.active_threads += 1
+            # with node.lock:
+                # node.active_threads += 1
 
             explored = self.default_search(node)
             if explored is not True:
@@ -194,6 +194,24 @@ class MCTS:
             prev = node
             # node = random.choice(node.children)
         return prev
+    
+    def max_prop(self, node):
+        # with node.lock:
+        node.subtree_value = None
+        for i in node.children:
+            if i is None:
+                continue
+            if node.subtree_value is None:
+                node.subtree_value = i.subtree_value
+            else:
+                node.subtree_value = max(node.subtree_value, i.subtree_value)
+        node.visits += 1
+        # node.active_threads -= 1
+        if node.subtree_value is None:
+            node.subtree_value = node.value
+        if node.parent is None:
+            return
+        self.max_prop(node.parent)
 
     def mean_prop(self, node):
         """
@@ -203,15 +221,16 @@ class MCTS:
         """
         with node.lock:
             node.subtree_value = torch.zeros(1).to(device)
-            node.subtree_value += node.value
+            node.subtree_value += node.value + node.depth
             valid_children = 0
             if not node.is_leaf():
                 for i in node.children:
                     if i is None:
                         continue
-                    node.subtree_value += self.k_weight * i.subtree_value
+                    node.subtree_value += self.k_weight * (i.subtree_value + i.depth) 
                     valid_children += 1
             node.subtree_value /= valid_children + 1
+            node.subtree_value -= node.depth
             node.visits += 1
 
             # remove virtual loss from node after thread done exploring its subtree
@@ -224,10 +243,11 @@ class MCTS:
     def explore_once(self, number):
         node = self.tree_policy(self.root)
         with self.propagation_lock:
-            self.mean_prop(node)
+            # self.mean_prop(node)
+            self.max_prop(node)
         return number
 
-    def run(self, root, comp_limit=10, max_threads=5):
+    def run(self, root, comp_limit=10, max_threads=5, nogil=False):
         """
         Shoutout "A Survey of MCTS Methods"
         :param root: the current state
@@ -238,9 +258,13 @@ class MCTS:
         if self.root.is_terminal:
             return True
 
-        # spawn new thread for each computation
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
-            executor.map(self.explore_once, range(comp_limit))
+        if nogil:
+            # spawn new thread for each computation
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
+                executor.map(self.explore_once, range(comp_limit))
+        else:
+            for i in range(comp_limit):
+                self.explore_once(i)
 
         rv = self.pick_child(self.root)
 
@@ -276,7 +300,7 @@ class Loss(nn.Module):
         self.v_loss_fn = torch.nn.MSELoss()
         self.p_loss_fn = torch.nn.CrossEntropyLoss()
 
-    def forward(self, v_out, v_target, p_out, p_target):
+    def forward(self, v_out, v_target):
         """
         Loss function designed to reward successful game completion while taking the least amount of steps possible
         Adapted from:
@@ -289,7 +313,7 @@ class Loss(nn.Module):
         :return: total loss
         """
         loss = self.v_loss_fn(v_out, v_target)
-        loss += self.p_loss_fn(p_out, p_target).sum()
+        # loss += self.p_loss_fn(p_out, p_target).sum()
         return loss
 
 
@@ -299,11 +323,11 @@ class ValueNN(nn.Module):
         self.flatten = nn.Flatten()
         self.stack = nn.Sequential(
             nn.Linear(state_size, 128),
-            nn.GELU(),
+            nn.ReLU(),
             nn.Linear(128, 64),
-            nn.GELU(),
+            nn.ReLU(),
             nn.Linear(64, 16),
-            nn.GELU(),
+            nn.ReLU(),
             nn.Linear(16, 1),
         )
     def forward(self, x):
@@ -330,19 +354,19 @@ class PolicyNN(nn.Module):
         self.policy_activation = nn.Softmax(dim=1)
     def forward(self, x):
         x = self.policy_activation(self.stack(x))#.flatten())
-        policy = torch.clamp(x,min=1e-8,max=1-(1e-7))
+        policy = torch.clamp(x,min=1e-8,max=1-(1e-8))
         return policy
 
 
 def one_batch(payload):
-    start, actions, value_fn, comp_limit, k_C, k_thread_count_limit = payload
+    start, actions, value_fn, comp_limit, k_C, k_thread_count_limit, nogil = payload
     mcts = MCTS(actions, C=k_C, weight=1, value_fn=value_fn)
 
     value = mcts.value_fn(start).flatten().to(device)
 
     start_node = Node(None, start, len(actions), value, 0)
 
-    mcts.run(start_node, comp_limit=comp_limit, max_threads=k_thread_count_limit)
+    mcts.run(start_node, comp_limit=comp_limit, max_threads=k_thread_count_limit, nogil=nogil)
 
 
     # get attributes of game just played
