@@ -103,16 +103,14 @@ def get_train_data(fname):
     return torch.tensor([x[:,2], x[:,2:]], dtype=torch.float)
 
 def get_nonterm_rwd(mcts):
-    return -mcts.max_depth
+    return -torch.tensor(mcts.max_depth, dtype=torch.float)
 
 def get_terminal_rwd(terminal_depth, start):
     return -terminal_depth + torch.linalg.norm(start)
     
-# override the one in util.py
 def UCT_fn(child, C):
-    if child.visits == 0:
-        return math.inf
     uct = child.subtree_value + 2 * C * math.sqrt(2 * math.log2(child.parent.visits) / child.visits)
+    # uct = child.subtree_value + (C * math.sqrt(child.parent.visits) / (child.visits)) ** (temp)
     return uct - child.active_threads
     
 class MCTS:
@@ -159,8 +157,8 @@ class MCTS:
 
         i = random.choice(possible)
         # if unexplored or non-terminal, get value
-        state = self.actions[i](node.state.flatten()).float().to(device)
-        state = state.reshape(node.state.shape)
+        state = self.actions[i](node.state.flatten()).float().to(device).clamp(-1e38, 1e38) # hacky clamp to prevent overflow
+        state = state.view(node.state.shape)
         child_val = self.value_fn(state) - node.depth - 1  # give penalty -1 for each additional step taken
         # child_val = self.value_fn(state)
         child_val = child_val.flatten()[0]
@@ -169,15 +167,15 @@ class MCTS:
         node.children[i] = Node(node, state, len(self.actions), value=child_val, depth=node.depth+1)
 
         # if new Node is terminal, take it as the tree's terminal if it takes less time to reach than current terminal
-        # if node.children[i].is_terminal:
-        #     # if terminal, add reward of ||start_vec||_2^2
-        #     node.children[i].value += torch.linalg.vector_norm(torch.square(self.root.state)).item()
-        #     if self.terminal is None or node.children[i].depth < self.terminal.depth:
-        #         self.terminal = node.children[i]
+        if node.children[i].is_terminal:
+            # if terminal, add reward of ||start_vec||_2^2
+            # node.children[i].value += torch.linalg.vector_norm(torch.square(self.root.state)).item()
+            if self.terminal is None or node.children[i].depth < self.terminal.depth:
+                self.terminal = node.children[i]
 
-        with self.propagation_lock:
-            if node.children[i].depth > self.max_depth:
-                self.max_depth = node.children[i].depth
+        # with self.propagation_lock:
+        if node.children[i].depth > self.max_depth:
+            self.max_depth = node.children[i].depth
         return node.children[i]
 
     def tree_policy(self, node):
@@ -258,13 +256,13 @@ class MCTS:
         if self.root.is_terminal:
             return True
 
-        if nogil:
-            # spawn new thread for each computation
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
-                executor.map(self.explore_once, range(comp_limit))
-        else:
-            for i in range(comp_limit):
-                self.explore_once(i)
+        # if nogil:
+        #     # spawn new thread for each computation
+        #     with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
+        #         executor.map(self.explore_once, range(comp_limit))
+        # else:
+        for i in range(comp_limit):
+            self.explore_once(i)
 
         rv = self.pick_child(self.root)
 
@@ -359,22 +357,21 @@ class PolicyNN(nn.Module):
 
 
 def one_batch(payload):
-    start, actions, value_fn, comp_limit, k_C, k_thread_count_limit, nogil = payload
+    start, actions, value_fn, comp_limit, k_C, k_thread_count_limit = payload
     mcts = MCTS(actions, C=k_C, weight=1, value_fn=value_fn)
 
     value = mcts.value_fn(start).flatten().to(device)
 
     start_node = Node(None, start, len(actions), value, 0)
 
-    mcts.run(start_node, comp_limit=comp_limit, max_threads=k_thread_count_limit, nogil=nogil)
+    mcts.run(start_node, comp_limit=comp_limit, max_threads=k_thread_count_limit)
 
 
     # get attributes of game just played
     v_out = start_node.subtree_value.to(device)
-    v_target = get_nonterm_rwd(mcts)
+    v_target = get_nonterm_rwd(mcts).to(device)
     if mcts.terminal is not None:
-        v_target = get_terminal_rwd(mcts.terminal.depth, start)
-    v_target = torch.tensor(v_target,dtype=v_out.dtype).to(device)
+        v_target = get_terminal_rwd(mcts.terminal.depth, start).to(device)
 
 
     visits = []
