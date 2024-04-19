@@ -2,6 +2,9 @@ import math
 import numpy as np
 import torch
 
+import sys
+sys.path.append('../')
+
 from util import *
 
 def get_action(action_mat, device="cpu"):
