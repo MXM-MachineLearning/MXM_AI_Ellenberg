@@ -4,7 +4,7 @@ Code developed for MXM Research 2023-24 as part of Jordan Ellenberg's project wi
 
 ## [Final Poster (Fall 2023)](https://github.com/dgconway/MXM-AI-Fall-2023/blob/main/MXM_AI_Poster_F23.pdf)
 
-## [Final Poster (Spring 2024)](https://github.com/dgconway/MXM-AI-Fall-2023/blob/main/MXM_AI_Poster_SP24.pdf)
+## [Final Poster (Spring 2024)](https://github.com/MXM-MachineLearning/MXM_AI_Ellenberg/blob/main/MXM_AI_Poster_SP24.pdf)
 
 ## [Euclidean Algorithm](https://en.wikipedia.org/wiki/Euclidean_algorithm)
 
